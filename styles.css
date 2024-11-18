@@ -1,0 +1,198 @@
+.container {
+  width: 400px;
+  padding: 16px;
+}
+
+.api-settings {
+  margin-bottom: 20px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+
+.api-settings input {
+  width: 70%;
+  padding: 8px;
+  margin-right: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.status {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.status.success {
+  color: #4CAF50;
+}
+
+.status.error {
+  color: #f44336;
+}
+
+.hidden {
+  display: none;
+}
+
+.controls {
+  margin: 16px 0;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background-color: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-fill {
+  width: 0%;
+  height: 100%;
+  background-color: #4CAF50;
+  transition: width 0.3s ease;
+}
+
+.progress-detail {
+  text-align: center;
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+#categoryList {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+button {
+  padding: 8px 16px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #45a049;
+}
+
+.tutorial {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.tutorial-section {
+  margin-bottom: 16px;
+}
+
+.tutorial-section h4 {
+  color: #2196F3;
+  margin-bottom: 8px;
+}
+
+.tutorial-section ul {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+
+.tutorial-section li {
+  margin: 4px 0;
+  line-height: 1.4;
+}
+
+.tutorial a {
+  color: #2196F3;
+  text-decoration: none;
+}
+
+.tutorial a:hover {
+  text-decoration: underline;
+}
+
+.tutorial-btn {
+  background-color: #2196F3;
+  margin-left: 8px;
+}
+
+.tutorial-btn:hover {
+  background-color: #1976D2;
+}
+
+button.secondary {
+  background-color: #757575;
+}
+
+button.secondary:hover {
+  background-color: #616161;
+}
+
+/* 添加 API 输入组样式 */
+.api-input-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 4px;
+}
+
+.api-input-group input {
+  flex: 1;
+}
+
+.icon-btn {
+  padding: 8px;
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  transition: background-color 0.2s;
+}
+
+.icon-btn:hover {
+  background-color: #f0f0f0;
+}
+
+/* 复制成功提示 */
+.copy-tooltip {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  animation: fadeOut 1.5s forwards;
+}
+
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 修改原有的 API 设置样式 */
+.api-settings input {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+} 
