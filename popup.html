@@ -1,88 +1,194 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <div class="container">
-    <h2>AI 书签分类</h2>
-    
-    <div class="api-settings">
-      <div class="api-input-group">
-        <input type="password" id="apiKey" placeholder="输入 Google Gemini API 密钥">
-        <button id="toggleApiKey" class="icon-btn" title="显示/隐藏密钥">👁️</button>
-        <button id="copyApiKey" class="icon-btn" title="复制密钥">📋</button>
-      </div>
-      <button id="saveApiKey">保存密钥</button>
-      <button id="showTutorial" class="tutorial-btn">查看教程</button>
-      <span id="apiStatus" class="status"></span>
-    </div>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h2>AI 书签分类</h2>
 
-    <div id="tutorial" class="tutorial hidden">
-      <h3>🔑 API 密钥申请教程</h3>
-      
-      <div class="tutorial-section">
-        <h4>步骤一：准备工作</h4>
-        <ul>
-          <li>确保你有一个 Google 账号</li>
-          <li>无需信用卡，免费额度足够使用</li>
-        </ul>
-      </div>
-
-      <div class="tutorial-section">
-        <h4>步骤二：获取 API 密钥</h4>
-        <ul>
-          <li>1. 访问：<a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></li>
-          <li>2. 使用 Google 账号登录</li>
-          <li>3. 点击 "Create API key" 按钮</li>
-          <li>4. 复制生成的 API 密钥</li>
-        </ul>
-      </div>
-
-      <div class="tutorial-section">
-        <h4>步骤三：使用说明</h4>
-        <ul>
-          <li>1. 将密钥粘贴到上方输入框</li>
-          <li>2. 点击"保存密钥"按钮</li>
-          <li>3. 看到"密钥保存成功"即可使用</li>
-        </ul>
-      </div>
-
-      <div class="tutorial-section">
-        <h4>注意事项</h4>
-        <ul>
-          <li>✨ 免费额度：每分钟 60 次请求</li>
-          <li>🔒 请勿分享密钥给他人</li>
-          <li>🔄 建议定期更换密钥</li>
-        </ul>
-      </div>
-
-      <button id="closeTutorial" class="secondary">关闭教程</button>
-    </div>
-
-    <div class="controls">
-      <button id="startBtn">开始智能分类</button>
-      <button id="flattenBtn" class="secondary">打散所有文件夹</button>
-      <button id="cleanDuplicatesBtn" class="secondary">清理重复书签</button>
-      <div id="progress" class="hidden">
-        <div class="progress-info">
-          <span id="status">准备中...</span>
-          <span id="percentage">0%</span>
+      <div class="api-settings">
+        <div class="api-input-group">
+          <input
+            type="password"
+            id="apiKey"
+            placeholder="输入 DeepSeek API 密钥"
+          />
+          <button id="toggleApiKey" class="icon-btn" title="显示/隐藏密钥">
+            👁️
+          </button>
+          <button id="copyApiKey" class="icon-btn" title="复制密钥">📋</button>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill"></div>
+        <button id="saveApiKey">保存密钥</button>
+        <button id="showTutorial" class="tutorial-btn">查看教程</button>
+        <span id="apiStatus" class="status"></span>
+      </div>
+
+      <div id="tutorial" class="tutorial hidden">
+        <h3>🔑 DeepSeek API 密钥申请教程</h3>
+
+        <div class="tutorial-section">
+          <h4>步骤一：注册账号</h4>
+          <ul>
+            <li>
+              访问
+              <a href="https://platform.deepseek.com" target="_blank"
+                >DeepSeek 平台</a
+              >
+            </li>
+            <li>注册并登录您的账号</li>
+            <li>新用户有免费额度可使用</li>
+          </ul>
         </div>
-        <div class="progress-detail">
-          <span id="processedCount">0</span> / <span id="totalCount">0</span> 个书签
+
+        <div class="tutorial-section">
+          <h4>步骤二：获取 API 密钥</h4>
+          <ul>
+            <li>1. 访问 API Keys 页面</li>
+            <li>2. 点击 "创建新密钥" 按钮</li>
+            <li>3. 复制生成的 API 密钥</li>
+          </ul>
+        </div>
+
+        <div class="tutorial-section">
+          <h4>步骤三：使用说明</h4>
+          <ul>
+            <li>1. 将密钥粘贴到上方输入框</li>
+            <li>2. 点击"保存密钥"按钮</li>
+            <li>3. 设置分类要求（可选）</li>
+            <li>4. 选择要分类的文件夹</li>
+            <li>5. 开始智能分类</li>
+          </ul>
+        </div>
+
+        <div class="tutorial-section">
+          <h4>注意事项</h4>
+          <ul>
+            <li>✨ 免费额度有限，建议合理使用</li>
+            <li>🔒 请勿分享密钥给他人</li>
+            <li>🔄 建议定期更换密钥</li>
+          </ul>
+        </div>
+
+        <button id="closeTutorial" class="secondary">关闭教程</button>
+      </div>
+
+      <div class="classification-settings">
+        <h3>📋 分类设置</h3>
+        <div class="setting-group">
+          <label for="classificationStyle">分类方式：</label>
+          <select id="classificationStyle">
+            <option value="smart">智能分类（推荐）</option>
+            <option value="detailed">详细分类</option>
+            <option value="simple">简单分类</option>
+            <option value="custom">自定义分类</option>
+          </select>
+        </div>
+
+        <div
+          class="setting-group"
+          id="customRequirementGroup"
+          style="display: none"
+        >
+          <label for="customRequirement">自定义分类要求：</label>
+          <textarea
+            id="customRequirement"
+            placeholder="例如：按照网站类型分类，包括：技术文档、新闻媒体、社交平台、学习资源、工具网站等..."
+            rows="3"
+          ></textarea>
+          <small class="help-text">描述您希望如何对书签进行分类</small>
+        </div>
+
+        <div class="setting-group">
+          <label for="maxCategories">一级文件夹数量：</label>
+          <select id="maxCategories">
+            <option value="5">5个分类</option>
+            <option value="8" selected>8个分类</option>
+            <option value="12">12个分类</option>
+            <option value="15">15个分类</option>
+          </select>
+        </div>
+
+        <div class="setting-group">
+          <label for="maxSubCategories">二级文件夹数量：</label>
+          <select id="maxSubCategories">
+            <option value="3">每个一级下最多3个</option>
+            <option value="5">每个一级下最多5个</option>
+            <option value="8" selected>每个一级下最多8个</option>
+            <option value="10">每个一级下最多10个</option>
+          </select>
+        </div>
+
+        <div class="setting-group">
+          <label for="maxLevels">最大层级数：</label>
+          <select id="maxLevels">
+            <option value="2">2层（一级+二级）</option>
+            <option value="3" selected>3层（推荐）</option>
+            <option value="4">4层</option>
+          </select>
+          <small class="help-text">控制文件夹的最大层级深度</small>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            <input type="checkbox" id="createSubCategories" checked />
+            创建子分类
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            <input type="checkbox" id="fuzzyClassification" checked />
+            使用模糊分类（大概分类）
+          </label>
+          <small class="help-text">启用后将进行宽泛的分类，不会过度细分</small>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            <input type="checkbox" id="includeSubfolders" checked />
+            包含子文件夹中的书签
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label>
+            <input type="checkbox" id="checkAccessibility" checked />
+            检查页面可访问性
+          </label>
         </div>
       </div>
+
+      <div class="controls">
+        <div class="folder-selection">
+          <label for="folderSelect">选择要分类的文件夹：</label>
+          <select id="folderSelect"></select>
+          <button id="refreshFolders" type="button">🔄</button>
+          <p id="selectedBookmarks" class="info-text">请先选择文件夹</p>
+        </div>
+        <button id="startBtn">开始智能分类</button>
+        <button id="flattenBtn" class="secondary">打散所有文件夹</button>
+        <button id="cleanDuplicatesBtn" class="secondary">清理重复书签</button>
+        <div id="progress" class="hidden">
+          <div class="progress-info">
+            <span id="status">准备中...</span>
+            <span id="percentage">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill"></div>
+          </div>
+          <div class="progress-detail">
+            <span id="processedCount">0</span> /
+            <span id="totalCount">0</span> 个书签
+          </div>
+        </div>
+      </div>
+      <div id="results" class="hidden">
+        <h3>分类结果:</h3>
+        <ul id="categoryList"></ul>
+      </div>
     </div>
-    <div id="results" class="hidden">
-      <h3>分类结果:</h3>
-      <ul id="categoryList"></ul>
-    </div>
-  </div>
-  <script src="popup.js"></script>
-</body>
-</html> 
+    <script src="popup.js"></script>
+  </body>
+</html>

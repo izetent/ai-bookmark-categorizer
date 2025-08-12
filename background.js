@@ -4,12 +4,13 @@ let classificationState = {
   progress: 0,
   processed: 0,
   total: 0,
-  status: ''
+  status: "",
+  result: null,
 };
 
 // 监听来自popup的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'classifyBookmarks') {
+  if (request.action === "classifyBookmarks") {
     // 如果已经在运行，返回当前状态
     if (classificationState.isRunning) {
       sendResponse({
@@ -17,47 +18,57 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         progress: classificationState.progress,
         status: classificationState.status,
         processed: classificationState.processed,
-        total: classificationState.total
+        total: classificationState.total,
       });
       return true;
     }
 
     // 开始新的分类任务
     classificationState.isRunning = true;
-    classifyBookmarks(request.bookmarks)
-      .then(result => {
+    classifyBookmarks(request.bookmarks, request.settings || {})
+      .then((result) => {
         classificationState.isRunning = false;
+        classificationState.result = result;
         sendResponse(result);
       })
-      .catch(error => {
+      .catch((error) => {
         classificationState.isRunning = false;
-        sendResponse({error: error.message});
+        sendResponse({ error: error.message });
       });
     return true;
-  } else if (request.action === 'flattenFolders') {
+  } else if (request.action === "flattenFolders") {
     flattenAllFolders()
       .then(sendResponse)
-      .catch(error => sendResponse({error: error.message}));
+      .catch((error) => sendResponse({ error: error.message }));
     return true;
-  } else if (request.action === 'cleanDuplicates') {
+  } else if (request.action === "cleanDuplicates") {
     cleanDuplicateBookmarks()
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({
-        success: false,
-        error: error.message
-      }));
+      .then((result) => sendResponse(result))
+      .catch((error) =>
+        sendResponse({
+          success: false,
+          error: error.message,
+        })
+      );
     return true;
-  } else if (request.action === 'setApiKey') {
-    chrome.storage.sync.set({ apiKey: request.apiKey })
+  } else if (request.action === "setApiKey") {
+    chrome.storage.sync
+      .set({ apiKey: request.apiKey })
       .then(() => sendResponse({ success: true }))
-      .catch(error => sendResponse({ 
-        success: false, 
-        error: error.message 
-      }));
+      .catch((error) =>
+        sendResponse({
+          success: false,
+          error: error.message,
+        })
+      );
     return true;
-  } else if (request.action === 'getClassificationState') {
+  } else if (request.action === "getClassificationState") {
     // 返回当前状态
     sendResponse(classificationState);
+    return true;
+  } else if (request.action === "getClassificationResult") {
+    // 返回分类结果
+    sendResponse(classificationState.result || {});
     return true;
   }
 });
@@ -67,30 +78,26 @@ async function flattenAllFolders() {
   try {
     const bookmarks = await chrome.bookmarks.getTree();
     await flattenFolderRecursive(bookmarks[0]);
-    return { success: true, message: '文件夹打散完成' };
+    return { success: true, message: "文件夹打散完成" };
   } catch (error) {
-    throw new Error('打散文件夹失败: ' + error.message);
+    throw new Error("打散文件夹失败: " + error.message);
   }
 }
 
 async function flattenFolderRecursive(node) {
   if (node.children) {
-    // 复制一份子节点数组，因为我们会修改原数组
     const children = [...node.children];
     for (const child of children) {
       if (child.children) {
-        // 是文件夹
         await flattenFolderRecursive(child);
-        // 将书签移动到根目录
         for (const bookmark of child.children || []) {
           if (bookmark.url) {
             await chrome.bookmarks.move(bookmark.id, {
-              parentId: '1' // '1' 是书签栏的ID
+              parentId: "1",
             });
           }
         }
-        // 删除空文件夹
-        if (child.id !== '1' && child.id !== '2') { // 不删除书签栏和其他书签
+        if (child.id !== "1" && child.id !== "2") {
           await chrome.bookmarks.remove(child.id);
         }
       }
@@ -98,112 +105,378 @@ async function flattenFolderRecursive(node) {
   }
 }
 
-async function classifyBookmarks(bookmarks) {
-  const { apiKey } = await chrome.storage.sync.get('apiKey');
+async function classifyBookmarks(bookmarks, settings = {}) {
+  const { apiKey } = await chrome.storage.sync.get("apiKey");
   if (!apiKey) {
-    throw new Error('请先设置 Google Gemini API 密钥');
+    throw new Error("请先设置 DeepSeek API 密钥");
   }
 
   const categories = {};
   let processed = 0;
   const total = bookmarks.length;
+  let invalidFolder = null;
 
-  // 创建无法访问的书签文件夹
-  const invalidFolder = await chrome.bookmarks.create({
-    parentId: '1',
-    title: '⚠️ 无法访问的书签'
-  });
-
-  for (const bookmark of bookmarks) {
-    try {
-      updateProgress(
-        (processed / total) * 100,
-        `正在检查: ${bookmark.title}`,
-        processed,
-        total
-      );
-
-      // 检查页面是否可访问
-      const isAccessible = await checkPageAccessibility(bookmark.url);
-      
-      if (!isAccessible) {
-        // 如果页面无法访问，移动到无法访问文件夹
-        await chrome.bookmarks.create({
-          parentId: invalidFolder.id,
-          title: bookmark.title,
-          url: bookmark.url
-        });
-        await chrome.bookmarks.remove(bookmark.id);
-        processed++;
-        continue;
-      }
-
-      updateProgress(
-        (processed / total) * 100,
-        `正在分类: ${bookmark.title}`,
-        processed,
-        total
-      );
-
-      const [mainCategory, subCategory] = await getDetailedCategory(bookmark, apiKey);
-      
-      // 处理主分类
-      if (!categories[mainCategory]) {
-        categories[mainCategory] = {
-          folder: await chrome.bookmarks.create({
-            parentId: '1', // 直接在书签栏创建
-            title: mainCategory
-          }),
-          subCategories: {}
-        };
-      }
-
-      // 处理子分类
-      if (subCategory) {
-        if (!categories[mainCategory].subCategories[subCategory]) {
-          categories[mainCategory].subCategories[subCategory] = await chrome.bookmarks.create({
-            parentId: categories[mainCategory].folder.id,
-            title: subCategory
-          });
-        }
-        // 创建新书签
-        await chrome.bookmarks.create({
-          parentId: categories[mainCategory].subCategories[subCategory].id,
-          title: bookmark.title,
-          url: bookmark.url
-        });
-      } else {
-        // 如果没有子分类，直接创建在主分类文件夹下
-        await chrome.bookmarks.create({
-          parentId: categories[mainCategory].folder.id,
-          title: bookmark.title,
-          url: bookmark.url
-        });
-      }
-      
-      // 删除原始书签
-      await chrome.bookmarks.remove(bookmark.id);
-      
-      processed++;
-    } catch (error) {
-      console.error('处理错误:', error);
-      continue;
-    }
+  // 如果需要检查可访问性，创建无法访问的书签文件夹
+  if (settings.checkAccessibility !== false) {
+    invalidFolder = await chrome.bookmarks.create({
+      parentId: "1",
+      title: "⚠️ 无法访问的书签",
+    });
   }
 
-  // 如果无法访问文件夹为空，则删除它
-  const invalidFolderContent = await chrome.bookmarks.getChildren(invalidFolder.id);
-  if (invalidFolderContent.length === 0) {
-    await chrome.bookmarks.remove(invalidFolder.id);
+  // 批量处理书签以提高效率
+  const batchSize = 5;
+  for (let i = 0; i < bookmarks.length; i += batchSize) {
+    const batch = bookmarks.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (bookmark, batchIndex) => {
+      const globalIndex = i + batchIndex;
+      try {
+        updateProgress(
+          (globalIndex / total) * 100,
+          `正在处理: ${bookmark.title}`,
+          globalIndex,
+          total
+        );
+
+        // 检查页面可访问性（如果启用）
+        if (settings.checkAccessibility !== false) {
+          const isAccessible = await checkPageAccessibility(bookmark.url);
+
+          if (!isAccessible && invalidFolder) {
+            await chrome.bookmarks.create({
+              parentId: invalidFolder.id,
+              title: bookmark.title,
+              url: bookmark.url,
+            });
+            await chrome.bookmarks.remove(bookmark.id);
+            return;
+          }
+        }
+
+        // 使用 DeepSeek AI 进行分类
+        const categoryInfo = await getAICategory(bookmark, apiKey, settings);
+
+        // 处理分类结果
+        await processBookmarkCategory(
+          bookmark,
+          categoryInfo,
+          categories,
+          settings
+        );
+
+        // 删除原始书签
+        await chrome.bookmarks.remove(bookmark.id);
+      } catch (error) {
+        console.error("处理书签错误:", error);
+        // 如果分类失败，移动到"未分类"文件夹
+        await handleUnclassifiedBookmark(bookmark, categories);
+      }
+    });
+
+    await Promise.all(batchPromises);
+    processed += batch.length;
+  }
+
+  // 清理空的无法访问文件夹
+  if (invalidFolder) {
+    const invalidFolderContent = await chrome.bookmarks.getChildren(
+      invalidFolder.id
+    );
+    if (invalidFolderContent.length === 0) {
+      await chrome.bookmarks.remove(invalidFolder.id);
+    }
   }
 
   // 清理空文件夹
   await cleanEmptyFolders();
 
+  updateProgress(100, "分类完成", total, total);
   return categories;
 }
 
-// 添加清理空文件夹的功能
+// 使用 DeepSeek API 获取分类
+async function getAICategory(bookmark, apiKey, settings) {
+  const prompt = generateClassificationPrompt(bookmark, settings);
+
+  try {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是一个专业的书签分类助手。请根据网页标题和URL进行准确的分类，返回JSON格式的结果。",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 200,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(
+        error.error?.message ||
+          `HTTP ${response.status}: ${response.statusText}`
+      );
+    }
+
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content;
+
+    if (!content) {
+      throw new Error("AI 返回空响应");
+    }
+
+    try {
+      return JSON.parse(content);
+    } catch (parseError) {
+      console.error("JSON解析错误:", parseError, "Content:", content);
+      // 如果JSON解析失败，尝试从文本中提取分类信息
+      return parseTextResponse(content);
+    }
+  } catch (error) {
+    console.error("DeepSeek API请求错误:", error);
+    throw new Error("AI分类请求失败: " + error.message);
+  }
+}
+
+// 生成分类提示词
+function generateClassificationPrompt(bookmark, settings) {
+  const {
+    classificationStyle,
+    customRequirement,
+    maxCategories,
+    maxSubCategories,
+    maxLevels,
+    createSubCategories,
+    fuzzyClassification,
+  } = settings;
+
+  let basePrompt = `请分析以下网页并进行分类：
+标题: ${bookmark.title}
+URL: ${bookmark.url}
+
+请返回JSON格式的分类结果，包含以下字段：
+{
+  "mainCategory": "主分类名称",
+  "subCategory": "子分类名称（如果需要）",
+  "confidence": 分类置信度(0-1),
+  "reason": "分类理由"
+}`;
+
+  // 模糊分类设置
+  if (fuzzyClassification) {
+    basePrompt += `\n\n【重要】使用模糊分类模式：只需要大概的分类类型，不要过于精确或细分。`;
+  }
+
+  // 根据分类方式调整提示词
+  switch (classificationStyle) {
+    case "detailed":
+      basePrompt += `\n\n分类要求：进行详细分类，尽可能细分到具体的用途和领域。`;
+      break;
+    case "simple":
+      basePrompt += `\n\n分类要求：进行简单分类，使用宽泛的类别，不要过于细分。`;
+      break;
+    case "custom":
+      if (customRequirement) {
+        basePrompt += `\n\n自定义分类要求：${customRequirement}`;
+      }
+      break;
+    default: // smart
+      basePrompt += `\n\n分类要求：智能分析网站内容和用途，选择最合适的分类方式。`;
+  }
+
+  // 分类数量限制
+  if (maxCategories) {
+    basePrompt += `\n一级分类数量必须控制在${maxCategories}个以内。`;
+  }
+
+  if (createSubCategories && maxSubCategories) {
+    basePrompt += `\n每个一级分类下的二级分类数量必须控制在${maxSubCategories}个以内。`;
+  }
+
+  // 层级限制
+  if (maxLevels) {
+    if (maxLevels <= 2) {
+      basePrompt += `\n最多只能有${maxLevels}层分类结构，二级分类后不再细分。`;
+    } else {
+      basePrompt += `\n最多只能有${maxLevels}层分类结构，超过${maxLevels}层的内容应平铺在当前层级。`;
+    }
+  }
+
+  if (createSubCategories) {
+    basePrompt += `\n如果合适，请创建子分类以更好地组织书签。`;
+  } else {
+    basePrompt += `\n不需要创建子分类，只使用主分类。`;
+  }
+
+  basePrompt += `\n\n常见分类参考（仅供参考，可根据实际内容调整）：
+- 技术开发（编程、工具、文档）
+- 学习资源（教程、课程、参考）
+- 新闻媒体（新闻、博客、资讯）
+- 社交平台（社交网络、论坛、社区）
+- 娱乐休闲（视频、音乐、游戏）
+- 购物电商（购物、比价、优惠）
+- 生活服务（工具、服务、实用）
+- 工作办公（办公、协作、管理）`;
+
+  return basePrompt;
+}
+
+// 解析文本响应（备用方案）
+function parseTextResponse(content) {
+  const lines = content.split("\n");
+  let mainCategory = "其他";
+  let subCategory = null;
+
+  for (const line of lines) {
+    if (line.includes("主分类") || line.includes("mainCategory")) {
+      const match = line.match(/[:：](.+)/);
+      if (match) mainCategory = match[1].trim();
+    }
+    if (line.includes("子分类") || line.includes("subCategory")) {
+      const match = line.match(/[:：](.+)/);
+      if (match) subCategory = match[1].trim();
+    }
+  }
+
+  return {
+    mainCategory,
+    subCategory,
+    confidence: 0.5,
+    reason: "文本解析",
+  };
+}
+
+// 处理书签分类
+async function processBookmarkCategory(
+  bookmark,
+  categoryInfo,
+  categories,
+  settings
+) {
+  const { mainCategory, subCategory } = categoryInfo;
+  const { maxCategories, maxSubCategories, maxLevels, createSubCategories } =
+    settings;
+
+  // 检查一级分类数量限制
+  const currentMainCategoryCount = Object.keys(categories).length;
+  let finalMainCategory = mainCategory;
+
+  if (
+    maxCategories &&
+    currentMainCategoryCount >= maxCategories &&
+    !categories[mainCategory]
+  ) {
+    // 如果超过了一级分类限制，将其归到"其他"分类
+    finalMainCategory = "🗂️ 其他";
+  }
+
+  // 处理主分类
+  if (!categories[finalMainCategory]) {
+    categories[finalMainCategory] = {
+      folder: await chrome.bookmarks.create({
+        parentId: "1",
+        title: finalMainCategory,
+      }),
+      subCategories: {},
+      bookmarks: [],
+    };
+  }
+
+  let targetFolderId;
+
+  // 处理子分类（考虑层级和数量限制）
+  if (subCategory && createSubCategories !== false && maxLevels > 1) {
+    const currentSubCategoryCount = Object.keys(
+      categories[finalMainCategory].subCategories
+    ).length;
+    let finalSubCategory = subCategory;
+
+    // 检查二级分类数量限制
+    if (
+      maxSubCategories &&
+      currentSubCategoryCount >= maxSubCategories &&
+      !categories[finalMainCategory].subCategories[subCategory]
+    ) {
+      // 如果超过了二级分类限制，直接放在一级分类下
+      targetFolderId = categories[finalMainCategory].folder.id;
+      categories[finalMainCategory].bookmarks.push(bookmark);
+    } else {
+      // 创建或使用现有的二级分类
+      if (!categories[finalMainCategory].subCategories[finalSubCategory]) {
+        const subFolder = await chrome.bookmarks.create({
+          parentId: categories[finalMainCategory].folder.id,
+          title: finalSubCategory,
+        });
+        categories[finalMainCategory].subCategories[finalSubCategory] = {
+          folder: subFolder,
+          bookmarks: [],
+        };
+      }
+      targetFolderId =
+        categories[finalMainCategory].subCategories[finalSubCategory].folder.id;
+      categories[finalMainCategory].subCategories[
+        finalSubCategory
+      ].bookmarks.push(bookmark);
+    }
+  } else {
+    // 不创建子分类或已达到最大层级，直接放在主分类下
+    targetFolderId = categories[finalMainCategory].folder.id;
+    categories[finalMainCategory].bookmarks.push(bookmark);
+  }
+
+  // 创建新书签
+  await chrome.bookmarks.create({
+    parentId: targetFolderId,
+    title: bookmark.title,
+    url: bookmark.url,
+  });
+}
+
+// 处理未分类书签
+async function handleUnclassifiedBookmark(bookmark, categories) {
+  const unclassifiedCategory = "📂 未分类";
+
+  if (!categories[unclassifiedCategory]) {
+    categories[unclassifiedCategory] = {
+      folder: await chrome.bookmarks.create({
+        parentId: "1",
+        title: unclassifiedCategory,
+      }),
+      subCategories: {},
+      bookmarks: [],
+    };
+  }
+
+  await chrome.bookmarks.create({
+    parentId: categories[unclassifiedCategory].folder.id,
+    title: bookmark.title,
+    url: bookmark.url,
+  });
+
+  categories[unclassifiedCategory].bookmarks.push(bookmark);
+
+  try {
+    await chrome.bookmarks.remove(bookmark.id);
+  } catch (error) {
+    console.error("删除原书签失败:", error);
+  }
+}
+
+// 清理空文件夹
 async function cleanEmptyFolders() {
   const bookmarks = await chrome.bookmarks.getTree();
   await cleanEmptyFoldersRecursive(bookmarks[0]);
@@ -211,168 +484,101 @@ async function cleanEmptyFolders() {
 
 async function cleanEmptyFoldersRecursive(node) {
   if (node.children) {
-    // 先处理子文件夹
     for (const child of [...node.children]) {
       if (child.children) {
         await cleanEmptyFoldersRecursive(child);
       }
     }
-    
-    // 如果当前文件夹为空且不是根文件夹，则删除
-    const currentNode = await chrome.bookmarks.get(node.id);
-    if (currentNode[0].children?.length === 0 && node.id !== '0' && node.id !== '1' && node.id !== '2') {
-      await chrome.bookmarks.remove(node.id);
+
+    try {
+      const currentNode = await chrome.bookmarks.get(node.id);
+      const children = await chrome.bookmarks.getChildren(node.id);
+      if (
+        children.length === 0 &&
+        node.id !== "0" &&
+        node.id !== "1" &&
+        node.id !== "2"
+      ) {
+        await chrome.bookmarks.remove(node.id);
+      }
+    } catch (error) {
+      // 忽略删除错误
     }
   }
 }
 
-async function getDetailedCategory(bookmark, apiKey) {
-  const prompt = `分析以下网页的标题和URL，返回两级分类（用|分隔，例如：技术|编程 或 购物|电子产品），分类名称要简短精确：
-标题: ${bookmark.title}
-URL: ${bookmark.url}
-要求：
-1. 第一级分类要笼统（如：技术、生活、教育、购物等）
-2. 第二级分类要具体（如：编程、美食、课程、数码等）
-3. 分类名称必须是中文
-4. 只返回分类名称，不要其他解释
-示例返回格式：技术|编程`;
-
-  try {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=' + apiKey, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 20,
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || '请求失败');
-    }
-
-    const data = await response.json();
-    const categories = data.candidates[0].content.parts[0].text.trim().split('|');
-    return [
-      categories[0].trim(),
-      categories[1]?.trim() || null
-    ];
-  } catch (error) {
-    console.error('Gemini API请求错误:', error);
-    throw new Error('AI分类请求失败');
-  }
-}
-
-// 添加用于设置API密钥的方法
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'setApiKey') {
-    chrome.storage.sync.set({ apiKey: request.apiKey })
-      .then(() => sendResponse({ success: true }))
-      .catch(error => sendResponse({ error: error.message }));
-    return true;
-  }
-});
-
-// 添加检查页面可访问性的函数
+// 检查页面可访问性
 async function checkPageAccessibility(url) {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     const response = await fetch(url, {
-      method: 'HEAD',
-      mode: 'no-cors',
-      cache: 'no-cache',
-      timeout: 5000 // 5秒超时
+      method: "HEAD",
+      mode: "no-cors",
+      cache: "no-cache",
+      signal: controller.signal,
     });
-    
-    // 由于 no-cors 模式的限制，我们只能通过是否抛出异常来判断
+
+    clearTimeout(timeoutId);
     return true;
   } catch (error) {
-    // 如果发生错误（超时、网络错误等），认为页面不可访问
     return false;
   }
 }
 
-// 添加清理重复书签的功能
+// 清理重复书签功能
 async function cleanDuplicateBookmarks() {
   try {
     const bookmarks = await chrome.bookmarks.getTree();
     const allBookmarks = await getAllBookmarks(bookmarks);
-    
-    // 用于存储已见过的URL
+
     const urlMap = new Map();
-    // 用于存储重复的书签
     const duplicates = [];
-    // 用于存储唯一的书签
-    const unique = [];
-    
-    // 首次遍历，找出所有重复项
+
     for (const bookmark of allBookmarks) {
-      // 标准化 URL（移除尾部斜杠等）
       const normalizedUrl = normalizeUrl(bookmark.url);
-      
+
       if (!urlMap.has(normalizedUrl)) {
-        urlMap.set(normalizedUrl, {
-          original: bookmark,
-          duplicates: []
-        });
-        unique.push(bookmark);
+        urlMap.set(normalizedUrl, bookmark);
       } else {
-        urlMap.get(normalizedUrl).duplicates.push(bookmark);
         duplicates.push(bookmark);
       }
     }
 
-    // 创建重复书签文件夹
+    if (duplicates.length === 0) {
+      return {
+        success: true,
+        message: "没有发现重复书签",
+      };
+    }
+
     const duplicateFolder = await chrome.bookmarks.create({
-      parentId: '1',
-      title: '🔄 重复的书签'
+      parentId: "1",
+      title: "🔄 重复的书签",
     });
 
-    // 移动重复的书签到重复文件夹
     let processed = 0;
-    const total = duplicates.length;
-
     for (const duplicate of duplicates) {
       try {
-        // 更新进度
-        chrome.runtime.sendMessage({
-          action: 'updateProgress',
-          progress: (processed / total) * 100,
-          status: `正在处理重复书签: ${duplicate.title}`,
-          processed: processed,
-          total: total
-        });
-
-        // 移动到重复文件夹
         await chrome.bookmarks.move(duplicate.id, {
-          parentId: duplicateFolder.id
+          parentId: duplicateFolder.id,
         });
-        
         processed++;
       } catch (error) {
-        console.error('移动书签失败:', error);
+        console.error("移动书签失败:", error);
       }
     }
 
     return {
       success: true,
-      message: `已找到 ${duplicates.length} 个重复书签，已移动到"重复的书签"文件夹`
+      message: `已找到 ${duplicates.length} 个重复书签，已移动到"重复的书签"文件夹`,
     };
   } catch (error) {
-    throw new Error('清理重复书签失败: ' + error.message);
+    throw new Error("清理重复书签失败: " + error.message);
   }
 }
 
-// 获取所有书签
 async function getAllBookmarks(nodes) {
   let bookmarks = [];
   for (const node of nodes) {
@@ -385,60 +591,37 @@ async function getAllBookmarks(nodes) {
   return bookmarks;
 }
 
-// 标准化 URL
 function normalizeUrl(url) {
   try {
-    // 创建 URL 对象以标准化 URL
     const urlObj = new URL(url);
-    // 移除末尾的斜杠
-    let normalized = urlObj.origin + urlObj.pathname.replace(/\/$/, '');
-    // 添加查询参数（如果有）
-    if (urlObj.search) {
-      normalized += urlObj.search;
-    }
-    // 添加哈希（如果有）
-    if (urlObj.hash) {
-      normalized += urlObj.hash;
-    }
+    let normalized = urlObj.origin + urlObj.pathname.replace(/\/$/, "");
+    if (urlObj.search) normalized += urlObj.search;
+    if (urlObj.hash) normalized += urlObj.hash;
     return normalized.toLowerCase();
   } catch (e) {
-    // 如果 URL 无效，返回原始 URL
     return url.toLowerCase();
   }
 }
 
-// 修改 manifest.json 中的权限
-const manifestUpdates = {
-  "permissions": [
-    "bookmarks",
-    "storage",
-    "webRequest"
-  ],
-  "host_permissions": [
-    "https://generativelanguage.googleapis.com/*",
-    "<all_urls>"  // 需要添加此权限���检查页面可访问性
-  ]
-};
-
-// 修改更新进度的方法
 function updateProgress(progress, status, processed, total) {
   classificationState = {
+    ...classificationState,
     isRunning: true,
     progress,
     status,
     processed,
-    total
+    total,
   };
 
-  // 广播进度更新给所有打开的 popup
-  chrome.runtime.sendMessage({
-    action: 'updateProgress',
-    progress,
-    status,
-    processed,
-    total
-  }).catch(() => {
-    // 忽略错误，这可能是因为没有活动的 popup
-  });
+  chrome.runtime
+    .sendMessage({
+      action: "updateProgress",
+      progress,
+      status,
+      processed,
+      total,
+    })
+    .catch(() => {
+      // 忽略错误
+    });
 }
-  
